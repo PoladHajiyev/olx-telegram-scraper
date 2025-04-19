@@ -7,25 +7,35 @@ from datetime import datetime, timedelta
 from playwright.async_api import async_playwright
 import requests
 
-
-
-# === Load Secrets from Environment Variables (Railway or local)
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-
-print("BOT_TOKEN:", BOT_TOKEN)
-print("CHAT_ID:", CHAT_ID)
-
-if not BOT_TOKEN or not CHAT_ID:
-    print("❌ Missing BOT_TOKEN or CHAT_ID in environment.")
-    exit(1)
+# === Telegram Bot Settings ===
+BOT_TOKEN = '7865289950:AAH3bK334HW5MOpPFeomlWHlS9D9qL6mGk8'
+CHAT_ID = '753919365'
 
 # === OLX Search URLs ===
 URLS_TO_SCRAPE = [
-    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/warszawa/?search%5Bfilter_float_price%3Ato%5D=450000&search%5Bfilter_float_price_per_m%3Ato%5D=13000&search[order]=created_at:desc",
-    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/poznan/?search%5Bfilter_float_price%3Ato%5D=400000&search%5Bfilter_float_price_per_m%3Ato%5D=10000&search[order]=created_at:desc",
-    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/krakow/?search%5Bfilter_float_price%3Ato%5D=400000&search%5Bfilter_float_price_per_m%3Ato%5D=12000&search[order]=created_at:desc",
-    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/wroclaw/?search%5Bfilter_float_price%3Ato%5D=400000&search%5Bfilter_float_price_per_m%3Ato%5D=11000&search[order]=created_at:desc"
+    # Warsaw
+    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/warszawa/"
+    "?search%5Bfilter_float_price%3Ato%5D=450000"
+    "&search%5Bfilter_float_price_per_m%3Ato%5D=13000"
+    "&search[order]=created_at:desc",
+
+    # Poznań
+    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/poznan/"
+    "?search%5Bfilter_float_price%3Ato%5D=400000"
+    "&search%5Bfilter_float_price_per_m%3Ato%5D=10000"
+    "&search[order]=created_at:desc",
+
+    # Kraków
+    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/krakow/"
+    "?search%5Bfilter_float_price%3Ato%5D=400000"
+    "&search%5Bfilter_float_price_per_m%3Ato%5D=12000"
+    "&search[order]=created_at:desc",
+
+    # Wrocław
+    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/wroclaw/"
+    "?search%5Bfilter_float_price%3Ato%5D=400000"
+    "&search%5Bfilter_float_price_per_m%3Ato%5D=11000"
+    "&search[order]=created_at:desc"
 ]
 
 # === Sent Links File ===
@@ -78,6 +88,7 @@ def parse_date_posted(text):
 
 async def fetch_olx_listings():
     results = []
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
@@ -86,6 +97,7 @@ async def fetch_olx_listings():
             print(f"🌍 Scraping: {url}")
             await page.goto(url)
             await page.wait_for_selector("div[data-cy='l-card']")
+
             listings = await page.query_selector_all("div[data-cy='l-card']")
 
             for listing in listings:
@@ -155,38 +167,46 @@ async def fetch_olx_listings():
         results.sort(key=lambda x: x["sort_date"], reverse=True)
         today = datetime.now().date()
         yesterday = today - timedelta(days=1)
-        return [item for item in results if item["sort_date"].date() in {today, yesterday}]
+        results = [item for item in results if item["sort_date"].date() in {today, yesterday}]
 
+        return results
 
-# ▶️ Run Once (Perfect for Railway or Manual Test)
+# ▶️ Auto-run every 2 minutes
 if __name__ == "__main__":
-    print("🚀 Running OLX Telegram notifier...")
-
-    listings = asyncio.run(fetch_olx_listings())
-    print(f"\n✅ Total listings found: {len(listings)}")
+    print("🚀 Starting OLX Telegram notifier (2 min loop)...")
 
     sent_links = load_sent_links()
-    new_listings = [l for l in listings if l["link"] not in sent_links]
 
-    if new_listings:
-        for listing in new_listings:
-            print(f"🏠 {listing['title']}")
-            print(f"💰 {listing['price']}")
-            print(f"📐 {listing['price_per_m2']}")
-            print(f"📍 {listing['location']} — 🗓 {listing['date_posted']}")
-            print(f"🔗 {listing['link']}")
-            print("-" * 40)
+    while True:
+        send_to_telegram(BOT_TOKEN, CHAT_ID, "🔄 This is another scrape in process...")
 
-            message = f"""
+        listings = asyncio.run(fetch_olx_listings())
+        print(f"\n✅ Total listings found: {len(listings)}")
+
+        new_listings = [l for l in listings if l["link"] not in sent_links]
+
+        if new_listings:
+            for listing in new_listings:
+                print(f"🏠 {listing['title']}")
+                print(f"💰 {listing['price']}")
+                print(f"📐 {listing['price_per_m2']}")
+                print(f"📍 {listing['location']} — 🗓 {listing['date_posted']}")
+                print(f"🔗 {listing['link']}")
+                print("-" * 40)
+
+                message = f"""
 <b>{listing['title']}</b>
 💰 <b>{listing['price']}</b>
 📐 {listing['price_per_m2']}
 📍 {listing['location']} — 🗓 {listing['date_posted']}
 🔗 <a href="{listing['link']}">Zobacz ogłoszenie</a>
 """
-            send_to_telegram(BOT_TOKEN, CHAT_ID, message.strip())
-            sent_links.add(listing["link"])
-        save_sent_links(sent_links)
-    else:
-        print("⚠️ No new listings found.")
-        send_to_telegram(BOT_TOKEN, CHAT_ID, "👀 Nothing new found for now.")
+                send_to_telegram(BOT_TOKEN, CHAT_ID, message.strip())
+                sent_links.add(listing["link"])
+                save_sent_links(sent_links)
+        else:
+            print("⚠️ No new listings found.")
+            send_to_telegram(BOT_TOKEN, CHAT_ID, "👀 Nothing new found for now.")
+
+        print("⏳ Waiting 2 minutes for next check...\n")
+        time.sleep(120)
