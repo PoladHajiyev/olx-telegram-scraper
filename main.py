@@ -8,8 +8,12 @@ from playwright.async_api import async_playwright
 import requests
 
 # === Load Secrets from Environment Variables (Railway or local)
-BOT_TOKEN = os.environ['BOT_TOKEN']
-CHAT_ID = os.environ['CHAT_ID']
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+
+if not BOT_TOKEN or not CHAT_ID:
+    print("❌ Missing BOT_TOKEN or CHAT_ID in environment.")
+    exit(1)
 
 # === OLX Search URLs ===
 URLS_TO_SCRAPE = [
