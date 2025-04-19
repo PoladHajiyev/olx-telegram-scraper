@@ -1,11 +1,10 @@
-import asyncio
-import re
+import requests
+import os
 import time
 import json
-import os
+import re
 from datetime import datetime, timedelta
-from playwright.async_api import async_playwright
-import requests
+from bs4 import BeautifulSoup
 
 # === Telegram Bot Settings ===
 BOT_TOKEN = '7865289950:AAH3bK334HW5MOpPFeomlWHlS9D9qL6mGk8'
@@ -13,29 +12,10 @@ CHAT_ID = '753919365'
 
 # === OLX Search URLs ===
 URLS_TO_SCRAPE = [
-    # Warsaw
-    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/warszawa/"
-    "?search%5Bfilter_float_price%3Ato%5D=450000"
-    "&search%5Bfilter_float_price_per_m%3Ato%5D=13000"
-    "&search[order]=created_at:desc",
-
-    # Poznań
-    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/poznan/"
-    "?search%5Bfilter_float_price%3Ato%5D=400000"
-    "&search%5Bfilter_float_price_per_m%3Ato%5D=10000"
-    "&search[order]=created_at:desc",
-
-    # Kraków
-    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/krakow/"
-    "?search%5Bfilter_float_price%3Ato%5D=400000"
-    "&search%5Bfilter_float_price_per_m%3Ato%5D=12000"
-    "&search[order]=created_at:desc",
-
-    # Wrocław
-    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/wroclaw/"
-    "?search%5Bfilter_float_price%3Ato%5D=400000"
-    "&search%5Bfilter_float_price_per_m%3Ato%5D=11000"
-    "&search[order]=created_at:desc"
+    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/warszawa/?search%5Bfilter_float_price%3Ato%5D=450000&search%5Bfilter_float_price_per_m%3Ato%5D=13000&search[order]=created_at:desc",
+    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/poznan/?search%5Bfilter_float_price%3Ato%5D=400000&search%5Bfilter_float_price_per_m%3Ato%5D=10000&search[order]=created_at:desc",
+    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/krakow/?search%5Bfilter_float_price%3Ato%5D=400000&search%5Bfilter_float_price_per_m%3Ato%5D=12000&search[order]=created_at:desc",
+    "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/wroclaw/?search%5Bfilter_float_price%3Ato%5D=400000&search%5Bfilter_float_price_per_m%3Ato%5D=11000&search[order]=created_at:desc"
 ]
 
 # === Sent Links File ===
@@ -86,127 +66,97 @@ def parse_date_posted(text):
             pass
     return datetime.min
 
-async def fetch_olx_listings():
+def fetch_olx_listings():
     results = []
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
 
-        for url in URLS_TO_SCRAPE:
-            print(f"🌍 Scraping: {url}")
-            await page.goto(url)
-            await page.wait_for_selector("div[data-cy='l-card']")
+    for url in URLS_TO_SCRAPE:
+        print(f"🌍 Scraping: {url}")
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            soup = BeautifulSoup(res.text, "html.parser")
 
-            listings = await page.query_selector_all("div[data-cy='l-card']")
+            listings = soup.select("div[data-cy='l-card']")
 
-            for listing in listings:
-                title = "N/A"
-                title_elem = await listing.query_selector("h6")
-                if not title_elem:
-                    title_elem = await listing.query_selector("img[alt]")
-                    if title_elem:
-                        title = await title_elem.get_attribute("alt")
-                else:
-                    try:
-                        title = await title_elem.inner_text()
-                    except:
-                        pass
+            for card in listings:
+                try:
+                    title_elem = card.select_one("h6")
+                    title = title_elem.text.strip() if title_elem else "N/A"
 
-                price = "N/A"
-                price_elem = await listing.query_selector("p[data-testid='ad-price']")
-                if price_elem:
-                    try:
-                        price = await price_elem.inner_text()
-                    except:
-                        pass
+                    price_elem = card.select_one("p[data-testid='ad-price']")
+                    price = price_elem.text.strip() if price_elem else "N/A"
 
-                price_per_m2 = "N/A"
-                for tag in await listing.query_selector_all("p, span"):
-                    try:
-                        txt = await tag.inner_text()
-                        if "zł/m²" in txt:
-                            price_per_m2 = txt.strip()
+                    price_per_m2 = "N/A"
+                    for tag in card.find_all(["p", "span"]):
+                        if "zł/m²" in tag.text:
+                            price_per_m2 = tag.text.strip()
                             break
-                    except:
-                        continue
 
-                location = "N/A"
-                date_posted = "N/A"
-                loc_date_elem = await listing.query_selector("p[data-testid='location-date']")
-                if loc_date_elem:
-                    try:
-                        loc_date_text = await loc_date_elem.inner_text()
-                        if " - " in loc_date_text:
-                            parts = loc_date_text.split(" - ")
-                            location = parts[0].strip()
-                            date_posted = parts[1].strip()
-                    except:
-                        pass
+                    loc_date_elem = card.select_one("p[data-testid='location-date']")
+                    location, date_posted = "N/A", "N/A"
+                    if loc_date_elem and " - " in loc_date_elem.text:
+                        parts = loc_date_elem.text.split(" - ")
+                        location = parts[0].strip()
+                        date_posted = parts[1].strip()
 
-                link = "#"
-                link_elem = await listing.query_selector("a[href]")
-                if link_elem:
-                    raw_link = await link_elem.get_attribute("href")
-                    link = f"https://www.olx.pl{raw_link}" if raw_link.startswith("/") else raw_link
+                    a_tag = card.find("a", href=True)
+                    link = "https://www.olx.pl" + a_tag["href"] if a_tag else "#"
 
-                sort_date = parse_date_posted(date_posted)
+                    sort_date = parse_date_posted(date_posted)
 
-                results.append({
-                    "title": title.strip(),
-                    "price": price.strip(),
-                    "price_per_m2": price_per_m2,
-                    "location": location,
-                    "date_posted": date_posted,
-                    "link": link,
-                    "sort_date": sort_date
-                })
+                    results.append({
+                        "title": title,
+                        "price": price,
+                        "price_per_m2": price_per_m2,
+                        "location": location,
+                        "date_posted": date_posted,
+                        "link": link,
+                        "sort_date": sort_date
+                    })
+                except Exception as e:
+                    print("⚠️ Error parsing listing:", e)
 
-        await browser.close()
+        except Exception as e:
+            print(f"❌ Request failed: {e}")
 
-        results.sort(key=lambda x: x["sort_date"], reverse=True)
-        today = datetime.now().date()
-        yesterday = today - timedelta(days=1)
-        results = [item for item in results if item["sort_date"].date() in {today, yesterday}]
+    results.sort(key=lambda x: x["sort_date"], reverse=True)
+    today = datetime.now().date()
+    yesterday = today - timedelta(days=1)
+    return [item for item in results if item["sort_date"].date() in {today, yesterday}]
 
-        return results
 
-# ▶️ Auto-run every 2 minutes
+# ▶️ Run Once
 if __name__ == "__main__":
-    print("🚀 Starting OLX Telegram notifier (2 min loop)...")
+    print("🚀 Running OLX Telegram notifier...")
+
+    listings = fetch_olx_listings()
+    print(f"\n✅ Total listings found: {len(listings)}")
 
     sent_links = load_sent_links()
+    new_listings = [l for l in listings if l["link"] not in sent_links]
 
-    while True:
-        send_to_telegram(BOT_TOKEN, CHAT_ID, "🔄 This is another scrape in process...")
+    if new_listings:
+        for listing in new_listings:
+            print(f"🏠 {listing['title']}")
+            print(f"💰 {listing['price']}")
+            print(f"📐 {listing['price_per_m2']}")
+            print(f"📍 {listing['location']} — 🗓 {listing['date_posted']}")
+            print(f"🔗 {listing['link']}")
+            print("-" * 40)
 
-        listings = asyncio.run(fetch_olx_listings())
-        print(f"\n✅ Total listings found: {len(listings)}")
-
-        new_listings = [l for l in listings if l["link"] not in sent_links]
-
-        if new_listings:
-            for listing in new_listings:
-                print(f"🏠 {listing['title']}")
-                print(f"💰 {listing['price']}")
-                print(f"📐 {listing['price_per_m2']}")
-                print(f"📍 {listing['location']} — 🗓 {listing['date_posted']}")
-                print(f"🔗 {listing['link']}")
-                print("-" * 40)
-
-                message = f"""
+            message = f"""
 <b>{listing['title']}</b>
 💰 <b>{listing['price']}</b>
 📐 {listing['price_per_m2']}
 📍 {listing['location']} — 🗓 {listing['date_posted']}
 🔗 <a href="{listing['link']}">Zobacz ogłoszenie</a>
 """
-                send_to_telegram(BOT_TOKEN, CHAT_ID, message.strip())
-                sent_links.add(listing["link"])
-                save_sent_links(sent_links)
-        else:
-            print("⚠️ No new listings found.")
-            send_to_telegram(BOT_TOKEN, CHAT_ID, "👀 Nothing new found for now.")
-
-        print("⏳ Waiting 2 minutes for next check...\n")
-        time.sleep(120)
+            send_to_telegram(BOT_TOKEN, CHAT_ID, message.strip())
+            sent_links.add(listing["link"])
+        save_sent_links(sent_links)
+    else:
+        print("⚠️ No new listings found.")
+        send_to_telegram(BOT_TOKEN, CHAT_ID, "👀 Nothing new found for now.")
