@@ -7,12 +7,14 @@ from datetime import datetime, timedelta
 from playwright.async_api import async_playwright
 import requests
 
-print("BOT_TOKEN:", BOT_TOKEN)
-print("CHAT_ID:", CHAT_ID)
+
 
 # === Load Secrets from Environment Variables (Railway or local)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+
+print("BOT_TOKEN:", BOT_TOKEN)
+print("CHAT_ID:", CHAT_ID)
 
 if not BOT_TOKEN or not CHAT_ID:
     print("❌ Missing BOT_TOKEN or CHAT_ID in environment.")
