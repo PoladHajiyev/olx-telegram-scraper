@@ -7,9 +7,8 @@ from datetime import datetime, timedelta
 from playwright.async_api import async_playwright
 import requests
 
-# === Telegram Bot Settings ===
-BOT_TOKEN = '7865289950:AAH3bK334HW5MOpPFeomlWHlS9D9qL6mGk8'
-CHAT_ID = '753919365'
+BOT_TOKEN = os.environ['BOT_TOKEN']
+CHAT_ID = os.environ['CHAT_ID']
 
 # === OLX Search URLs ===
 URLS_TO_SCRAPE = [
